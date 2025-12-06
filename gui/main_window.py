@@ -311,8 +311,13 @@ class MainWindow:
         self.resp_listbox = tk.Listbox(sel_frame, selectmode="extended", exportselection=False, height=12)
         self.resp_listbox.grid(row=1, column=1, padx=5)
 
+        # Zone Statistiques
+        tk.Label(sel_frame, text="Statistiques (Sélection)").grid(row=0, column=2)
+        self.stats_text = scrolledtext.ScrolledText(sel_frame, height=12, width=60, font=("Consolas", 9))
+        self.stats_text.grid(row=1, column=2, padx=5)
+
         tk.Button(sel_frame, text="Valider la sélection", command=self.validate_columns).grid(
-            row=2, column=0, columnspan=2, pady=6
+            row=2, column=0, columnspan=3, pady=6
         )
 
         # -------------------------
@@ -351,6 +356,9 @@ class MainWindow:
         tk.Button(action_frame, text="Lancer C2", command=self.run_C2).pack(side="left", padx=6)
         tk.Button(action_frame, text="Afficher PCA", command=self.show_pca).pack(side="left", padx=6)
         tk.Button(action_frame, text="Exporter CSV", command=self.export_csv).pack(side="left", padx=6)
+        tk.Button(action_frame, text="Analyse Sobol", command=self.show_sobol).pack(side="left", padx=6)
+        tk.Button(action_frame, text="Analyse SHAP", command=self.show_shap).pack(side="left", padx=6)
+        tk.Button(action_frame, text="Recherche Zones Opt.", command=self.show_optimization).pack(side="left", padx=6)
 
         # -------------------------
         # Logs
@@ -399,11 +407,64 @@ class MainWindow:
         self.param_cols = [self.param_listbox.get(i) for i in self.param_listbox.curselection()]
         self.response_cols = [self.resp_listbox.get(i) for i in self.resp_listbox.curselection()]
 
+        # Reset Stats Text
+        self.stats_text.delete("1.0", tk.END)
+
         if not self.param_cols or not self.response_cols:
             self.log_text.insert(tk.END, "⚠ Sélection incomplète (paramètres ou réponses).\n")
+            self.stats_text.insert(tk.END, "Veuillez sélectionner des paramètres et au moins une réponse.")
         else:
             self.log_text.insert(tk.END, f"Paramètres : {self.param_cols}\n")
             self.log_text.insert(tk.END, f"Réponses : {self.response_cols}\n")
+
+            # Calcul des stats pour chaque réponse
+            for resp in self.response_cols:
+                if resp not in self.df.columns:
+                    continue
+                
+                col_data = self.df[resp]
+                try:
+                    mean_val = col_data.mean()
+                    std_val = col_data.std()
+                    var_val = col_data.var()
+                    min_val = col_data.min()
+                    max_val = col_data.max()
+                    
+                    # Récupération des paramètres pour le min et le max
+                    idx_min = col_data.idxmin()
+                    idx_max = col_data.idxmax()
+                    
+                    params_min = self.df.loc[idx_min, self.param_cols].to_dict()
+                    params_max = self.df.loc[idx_max, self.param_cols].to_dict()
+
+                    # Affichage formaté
+                    self.stats_text.insert(tk.END, f"--- {resp} ---\n")
+                    self.stats_text.insert(tk.END, f"Moyenne  : {mean_val:.4f}\n")
+                    self.stats_text.insert(tk.END, f"Variance : {var_val:.4f} (Std: {std_val:.4f})\n\n")
+                    
+                    # Affichage côte à côte (Colonne gauche : MIN, Colonne droite : MAX)
+                    # On utilise un padding de 35 caractères pour la colonne de gauche
+                    col_width = 35
+                    
+                    header_line = f"{'[MIN] : ' + f'{min_val:.4f}':<{col_width}} {'[MAX] : ' + f'{max_val:.4f}'}\n"
+                    self.stats_text.insert(tk.END, header_line)
+                    
+                    # On suppose que params_min et params_max ont les mêmes clés (paramètres)
+                    for p in params_min.keys():
+                        v_min = params_min[p]
+                        v_max = params_max[p]
+                        
+                        # Formatage des lignes de paramètres
+                        str_min = f"  - {p}: {v_min:.4f}"
+                        str_max = f"  - {p}: {v_max:.4f}"
+                        
+                        line = f"{str_min:<{col_width}} {str_max}\n"
+                        self.stats_text.insert(tk.END, line)
+                    
+                    self.stats_text.insert(tk.END, "\n" + "="*60 + "\n")
+
+                except Exception as e:
+                    self.stats_text.insert(tk.END, f"Erreur stats sur {resp}: {e}\n")
 
     # =====================================================================
     # A1
@@ -478,6 +539,51 @@ class MainWindow:
 
         export_group_results(self.results, path)
         self.log_text.insert(tk.END, f"Résultats exportés vers : {path}\n")
+
+    # =====================================================================
+    # Sobol
+    # =====================================================================
+    def show_sobol(self):
+        if self.df is None:
+            self.log_text.insert(tk.END, "⚠ Aucun fichier chargé pour Sobol.\n")
+            return
+        if not self.param_cols:
+            self.log_text.insert(tk.END, "⚠ Aucun paramètre sélectionné.\n")
+            return
+
+        from gui.sobol_window import SobolWindow
+        SobolWindow(self.master, self.df, self.param_cols, self.response_cols)
+        self.log_text.insert(tk.END, "Fenêtre Analyse Sobol ouverte.\n")
+
+    # =====================================================================
+    # SHAP
+    # =====================================================================
+    def show_shap(self):
+        if self.df is None:
+            self.log_text.insert(tk.END, "⚠ Aucun fichier chargé pour SHAP.\n")
+            return
+        if not self.param_cols:
+            self.log_text.insert(tk.END, "⚠ Aucun paramètre sélectionné.\n")
+            return
+
+        from gui.shap_window import ShapWindow
+        ShapWindow(self.master, self.df, self.param_cols, self.response_cols)
+        self.log_text.insert(tk.END, "Fenêtre Analyse SHAP ouverte.\n")
+
+    # =====================================================================
+    # OPTIMIZATION
+    # =====================================================================
+    def show_optimization(self):
+        if self.df is None:
+            self.log_text.insert(tk.END, "⚠ Aucun fichier chargé pour Optimisation.\n")
+            return
+        if not self.param_cols:
+            self.log_text.insert(tk.END, "⚠ Aucun paramètre sélectionné.\n")
+            return
+
+        from gui.optimization_window import OptimizationWindow
+        OptimizationWindow(self.master, self.df, self.param_cols, self.response_cols)
+        self.log_text.insert(tk.END, "Fenêtre Optimisation ouverte.\n")
 
 
 def launch_app():
