@@ -54,6 +54,22 @@ Score unique pour identifier :
 
 ---
 
+### 🚀 Découverte et Visualisation de Zones Optimales
+Un module puissant pour la "chasse aux bosses" (bump hunting) dans l'espace des paramètres, permettant d'identifier des régions où les performances sont maximales.
+
+- **Identification des zones** : Détection automatique de régions prometteuses via des arbres de décision.
+- **Visualisation des paramètres** : Affichage des règles et des caractéristiques de chaque zone optimale.
+- **Optimisation fine** : Recherche du point optimal précis à l'intérieur d'une zone via un métamodèle.
+- **Visualisation d'Image Intégrée** : Permet de voir l'impact direct des paramètres optimaux sur une image de test.
+    - Sélection facile d'un dossier d'images sources.
+    - Application des paramètres optimaux (ou du centre de zone) sur une image choisie.
+    - Affichage côte à côte de l'image originale et de l'image traitée.
+- **Analyse des Distances dans l'Espace des Paramètres** :
+    - Nouvelle colonne "Dist. Ref" dans le tableau des zones, indiquant la distance normalisée de chaque zone par rapport à la meilleure zone (#1).
+    - Affichage de la "Distance Max Espace", la distance euclidienne maximale possible dans l'hypercube des paramètres normalisé, offrant un contexte sur la dispersion des zones.
+
+---
+
 ### 📄 Générateur automatique de rapport (Markdown)
 En un clic, l’application génère un rapport structuré contenant :
 
