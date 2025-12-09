@@ -214,16 +214,36 @@ class OptimizationWindow(tk.Toplevel):
         
         self.canvas.draw()
         
-        # Mise à jour du Parallel Plot avec le filtre
-        self.plot_parallel_coordinates(mask=mask)
+        # --- Calcul des réductions de variance pour la sélection actuelle ---
+        df_sel = self.df[mask]
+        current_variance_reductions = {}
 
-    def plot_parallel_coordinates(self, mask=None):
+        if len(df_sel) > 0: # Calculer seulement s'il y a des points sélectionnés
+            for col in self.params:
+                std_g = self.df[col].std()
+                std_s = df_sel[col].std()
+
+                if std_g > 0:
+                    reduction = max(0.0, (1 - (std_s / std_g)) * 100)
+                else:
+                    # Si l'écart-type global est 0 (paramètre constant),
+                    # alors la sélection ne peut pas le réduire davantage.
+                    # On met 0% car pas de variabilité à réduire.
+                    reduction = 0.0
+
+                current_variance_reductions[col] = reduction
+        
+        # Mise à jour du Parallel Plot avec le filtre et les réductions de variance
+        self.plot_parallel_coordinates(mask=mask, variance_reductions=current_variance_reductions)
+
+    def plot_parallel_coordinates(self, mask=None, variance_reductions=None):
         """
         Affiche un Parallel Coordinates Plot :
         - Axe X : Paramètres
         - Axe Y : Valeur Normalisée [0, 1]
         - Couleur : Réponse (Score)
         - Masque : Filtre les points à afficher
+        - variance_reductions : Dictionnaire {paramètre: réduction en %} à afficher
         """
         from matplotlib.collections import LineCollection
         
@@ -233,38 +253,28 @@ class OptimizationWindow(tk.Toplevel):
         # Filtrage des données
         if mask is not None:
             # On garde uniquement les lignes qui satisfont le masque
-            # Mais attention, pour garder l'échelle globale (Min/Max fixes),
-            # il faut calculer la normalisation sur TOUT le dataset, 
-            # puis filtrer les points à afficher.
             df_to_plot = self.df[mask].copy()
         else:
             df_to_plot = self.df.copy()
             
         if len(df_to_plot) == 0:
-            self.ax_par.text(0.5, 0.5, "Aucun point sélectionné", ha='center', va='center')
+            self.ax_par.text(0.5, 0.5, "Aucun point sélectionné", ha='center', va='center', transform=self.ax_par.transAxes)
             self.canvas_par.draw()
             return
 
         # 1. Normalisation des données (Min-Max -> 0-1) basées sur le GLOBAL
-        # On crée un DF temporaire pour le plot
         df_norm = df_to_plot.copy()
         
-        # Colonnes à tracer : les paramètres
         cols = self.params
         
-        # On normalise en utilisant les bornes GLOBALES pour que le graphique ne "saute" pas
-        bounds = {}
         for c in cols:
             mn, mx = self.df[c].min(), self.df[c].max()
-            bounds[c] = (mn, mx)
-            
             if mx > mn:
-                # On applique la transfo sur le sous-ensemble affiché
                 df_norm[c] = (df_norm[c] - mn) / (mx - mn)
             else:
                 df_norm[c] = 0.5 # Cas constant
 
-        # 2. Préparation des segments pour LineCollection
+        # Préparation des segments pour LineCollection
         N = len(df_norm)
         P = len(cols)
         
@@ -275,10 +285,8 @@ class OptimizationWindow(tk.Toplevel):
         points[:, :, 1] = df_norm[cols].values
         
         # --- AJOUT DENSITÉ (VIOLIN PLOTS) ---
-        # On dessine la densité en arrière-plan pour voir où s'accumulent les points
         violin_data = [df_norm[c].values for c in cols]
         
-        # Vérification qu'on a assez de points pour une densité
         if len(df_norm) > 1:
             try:
                 parts = self.ax_par.violinplot(
@@ -291,17 +299,14 @@ class OptimizationWindow(tk.Toplevel):
                     pc.set_edgecolor('none')
                     pc.set_alpha(0.2)           # Très léger pour fond
             except Exception:
-                # Peut échouer si tous les points sont identiques (variance nulle)
                 pass
 
         scores = df_to_plot[self.response].values
         
         # Recalcul de l'échelle de couleur sur la sélection actuelle (LOCALE)
-        # pour maximiser le contraste (bleu -> rouge sur la plage visible)
         vmin = df_to_plot[self.response].min()
         vmax = df_to_plot[self.response].max()
         
-        # Sécurité pour éviter erreur si tous les points ont exactement la même valeur
         if vmin == vmax:
             vmin -= 0.01
             vmax += 0.01
@@ -310,7 +315,7 @@ class OptimizationWindow(tk.Toplevel):
         
         self.ax_par.add_collection(lc)
         self.ax_par.set_xlim(-0.5, P - 0.5)
-        self.ax_par.set_ylim(-0.05, 1.05)
+        self.ax_par.set_ylim(-0.05, 1.25) # Augmenter l'espace pour les labels de réduction de variance
         
         # Axe X : Noms des paramètres
         self.ax_par.set_xticks(x_coords)
@@ -320,6 +325,30 @@ class OptimizationWindow(tk.Toplevel):
         self.ax_par.set_yticks([0, 0.5, 1])
         self.ax_par.set_yticklabels(["Min", "50%", "Max"])
         self.ax_par.grid(axis='x', linestyle='--', alpha=0.5)
+        
+        # --- AJOUT LABELS RÉDUCTION DE VARIANCE ---
+        if variance_reductions:
+            for i, col_name in enumerate(cols):
+                reduction_pct = variance_reductions.get(col_name, 0)
+                
+                # Positionnement : au-dessus de la valeur 1.0 (Max Normalisé)
+                # Légèrement plus haut que le haut du graphique
+                text_y_pos = 1.08 # Position verticale (en coordonnées normalisées)
+                
+                # Couleur et style selon la criticité
+                text_color = 'purple' if reduction_pct > 30 else 'black'
+                text_weight = 'bold' if reduction_pct > 30 else 'normal'
+
+                self.ax_par.text(
+                    i, text_y_pos,
+                    f"{reduction_pct:.1f}%",
+                    rotation=45,
+                    ha='center', # Centré sur l'axe
+                    va='bottom',
+                    fontsize=8,
+                    color=text_color,
+                    weight=text_weight
+                )
         
         # Colorbar sur l'axe dédié (cax)
         self.fig_par.colorbar(lc, cax=self.cax_par)
@@ -543,11 +572,11 @@ class OptimizationWindow(tk.Toplevel):
             mean_s = df_sel[col].mean()
             std_s = df_sel[col].std()
             
-            # Calcul réduction de variance
+            # Calcul réduction de variance (doit être >= 0)
             if std_g > 0:
-                reduction = (1 - (std_s / std_g)) * 100
-            else:
-                reduction = 0
+                reduction = max(0.0, (1 - (std_s / std_g)) * 100)
+            else: # Si l'écart-type global est 0, c'est déjà constant
+                reduction = 0.0
             
             criticality.append({
                 'param': col,
