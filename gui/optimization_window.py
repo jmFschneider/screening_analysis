@@ -18,11 +18,11 @@ class OptimizationWindow(tk.Toplevel):
     def __init__(self, master, df, params, response_cols, analysis_name="Analyse"):
         super().__init__(master)
         self.title("Découverte de Zones Optimales")
-        self.geometry("1100x700")
+        self.geometry("1600x700")
 
         self.df = df
         self.params = params
-        self.analysis_name = analysis_name
+        self.analysis_name = analysis_name # Correction: Store analysis_name
         self.response = response_cols[0] if isinstance(response_cols, list) else response_cols
         
         self.zones = []
@@ -55,12 +55,12 @@ class OptimizationWindow(tk.Toplevel):
         self.lbl_max_dist.pack(side="left", padx=15, ipady=3)
 
         # ==========================
-        # Contenu divisé (Gauche: Liste Zones, Droite: Détail/Visu)
+        # Contenu divisé (3 panneaux)
         # ==========================
         paned = tk.PanedWindow(self, orient=tk.HORIZONTAL, sashwidth=4)
         paned.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
-        # --- Panneau Gauche : Liste des Top Zones ---
+        # --- Panneau 1 : Liste des Top Zones (Gauche) ---
         left_frame = tk.LabelFrame(paned, text="Top Zones Prometteuses")
         paned.add(left_frame, minsize=300)
         
@@ -90,9 +90,9 @@ class OptimizationWindow(tk.Toplevel):
         self.combo_images.pack(fill="x", pady=2)
         self.combo_images.set("Aucune image")
 
-        # --- Panneau Droite : Détails de la zone sélectionnée ---
+        # --- Panneau 2 : Détails & Hist (Milieu) ---
         right_frame = tk.Frame(paned)
-        paned.add(right_frame, minsize=500)
+        paned.add(right_frame, minsize=400)
         
         # Zone Texte pour les règles
         self.lbl_detail = tk.Label(right_frame, text="Détails de la zone sélectionnée", font=("Arial", 10, "bold"))
@@ -106,6 +106,40 @@ class OptimizationWindow(tk.Toplevel):
         self.ax = self.fig.add_subplot(111)
         self.canvas = FigureCanvasTkAgg(self.fig, right_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True, pady=5)
+        
+        # Init variable graphique pour le curseur
+        self.green_span = None
+
+        # --- Panneau Curseur Manuel (Vert) ---
+        cursor_frame = tk.LabelFrame(right_frame, text="Filtre Manuel (Curseur Vert)", padx=5, pady=5)
+        cursor_frame.pack(fill="x", padx=5, pady=5)
+
+        # Calcul bornes pour les sliders
+        rmin = self.df[self.response].min()
+        rmax = self.df[self.response].max()
+        rspan = rmax - rmin if rmax != rmin else 1.0
+        
+        # Slider Position
+        tk.Label(cursor_frame, text="Position :").pack(anchor="w")
+        self.var_pos = tk.DoubleVar(value=(rmin+rmax)/2)
+        self.scale_pos = tk.Scale(cursor_frame, from_=rmin, to=rmax, orient=tk.HORIZONTAL, 
+                                  variable=self.var_pos, resolution=rspan/100, showvalue=False,
+                                  command=self.update_cursor_viz)
+        self.scale_pos.pack(fill="x")
+
+        # Slider Largeur
+        tk.Label(cursor_frame, text="Largeur :").pack(anchor="w")
+        self.var_width = tk.DoubleVar(value=rspan/10)
+        self.scale_width = tk.Scale(cursor_frame, from_=0, to=rspan, orient=tk.HORIZONTAL, 
+                                    variable=self.var_width, resolution=rspan/100, showvalue=False,
+                                    command=self.update_cursor_viz)
+        self.scale_width.pack(fill="x")
+        
+        # Stats sélection
+        self.lbl_cursor_stats = tk.Label(cursor_frame, text="Sélection : - points (-%)", fg="green", font=("Arial", 9, "bold"))
+        self.lbl_cursor_stats.pack(pady=2)
+
+        tk.Button(cursor_frame, text="📄 Exporter Rapport de Sélection", command=self.export_filtered_report, bg="#e0f7fa").pack(fill="x", pady=5)
 
         # --- Panneau Optimisation Fine ---
         opt_frame = tk.LabelFrame(right_frame, text="Exploration Fine (Métamodèle)", padx=5, pady=5)
@@ -130,6 +164,171 @@ class OptimizationWindow(tk.Toplevel):
         self.txt_opt_res = scrolledtext.ScrolledText(opt_frame, height=5, font=("Consolas", 9), bg="#e6ffe6")
         self.txt_opt_res.pack(fill="x", pady=5)
 
+        # --- Panneau 3 : Vue Parallèle (Droite - Nouveau) ---
+        self.visu_frame = tk.LabelFrame(paned, text="Vue Globale (Coordonnées Parallèles)")
+        paned.add(self.visu_frame, minsize=500)
+
+        self.fig_par = Figure(figsize=(6, 6))
+        
+        # Utilisation de GridSpec pour fixer l'espace du graphique et de la colorbar
+        from matplotlib.gridspec import GridSpec
+        gs = GridSpec(1, 2, width_ratios=[30, 1], wspace=0.1, figure=self.fig_par)
+        
+        self.ax_par = self.fig_par.add_subplot(gs[0])
+        self.cax_par = self.fig_par.add_subplot(gs[1])
+        
+        self.canvas_par = FigureCanvasTkAgg(self.fig_par, self.visu_frame)
+        self.canvas_par.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Lancer le tracé initial du graphique parallèle
+        self.plot_parallel_coordinates()
+
+    def update_cursor_viz(self, _=None):
+        """Met à jour la bande verte sur le graphique et les stats."""
+        # Nettoyage ancienne bande
+        if self.green_span:
+            try:
+                self.green_span.remove()
+            except:
+                pass # Déjà supprimé ou erreur interne matplotlib
+            self.green_span = None
+
+        pos = self.var_pos.get()
+        width = self.var_width.get()
+        
+        low = pos - width/2
+        high = pos + width/2
+        
+        # Dessin nouvelle bande
+        self.green_span = self.ax.axvspan(low, high, color='green', alpha=0.2)
+        
+        # Calcul stats
+        mask = (self.df[self.response] >= low) & (self.df[self.response] <= high)
+        count = mask.sum()
+        total = len(self.df)
+        pct = (count / total) * 100 if total > 0 else 0
+        
+        self.lbl_cursor_stats.config(
+            text=f"Sélection : [{low:.2f}, {high:.2f}] -> {count} pts ({pct:.1f}%)"
+        )
+        
+        self.canvas.draw()
+        
+        # Mise à jour du Parallel Plot avec le filtre
+        self.plot_parallel_coordinates(mask=mask)
+
+    def plot_parallel_coordinates(self, mask=None):
+        """
+        Affiche un Parallel Coordinates Plot :
+        - Axe X : Paramètres
+        - Axe Y : Valeur Normalisée [0, 1]
+        - Couleur : Réponse (Score)
+        - Masque : Filtre les points à afficher
+        """
+        from matplotlib.collections import LineCollection
+        
+        self.ax_par.clear()
+        self.cax_par.clear() # On nettoie l'axe dédié à la légende
+        
+        # Filtrage des données
+        if mask is not None:
+            # On garde uniquement les lignes qui satisfont le masque
+            # Mais attention, pour garder l'échelle globale (Min/Max fixes),
+            # il faut calculer la normalisation sur TOUT le dataset, 
+            # puis filtrer les points à afficher.
+            df_to_plot = self.df[mask].copy()
+        else:
+            df_to_plot = self.df.copy()
+            
+        if len(df_to_plot) == 0:
+            self.ax_par.text(0.5, 0.5, "Aucun point sélectionné", ha='center', va='center')
+            self.canvas_par.draw()
+            return
+
+        # 1. Normalisation des données (Min-Max -> 0-1) basées sur le GLOBAL
+        # On crée un DF temporaire pour le plot
+        df_norm = df_to_plot.copy()
+        
+        # Colonnes à tracer : les paramètres
+        cols = self.params
+        
+        # On normalise en utilisant les bornes GLOBALES pour que le graphique ne "saute" pas
+        bounds = {}
+        for c in cols:
+            mn, mx = self.df[c].min(), self.df[c].max()
+            bounds[c] = (mn, mx)
+            
+            if mx > mn:
+                # On applique la transfo sur le sous-ensemble affiché
+                df_norm[c] = (df_norm[c] - mn) / (mx - mn)
+            else:
+                df_norm[c] = 0.5 # Cas constant
+
+        # 2. Préparation des segments pour LineCollection
+        N = len(df_norm)
+        P = len(cols)
+        
+        x_coords = np.arange(P)
+        
+        points = np.zeros((N, P, 2))
+        points[:, :, 0] = x_coords
+        points[:, :, 1] = df_norm[cols].values
+        
+        # --- AJOUT DENSITÉ (VIOLIN PLOTS) ---
+        # On dessine la densité en arrière-plan pour voir où s'accumulent les points
+        violin_data = [df_norm[c].values for c in cols]
+        
+        # Vérification qu'on a assez de points pour une densité
+        if len(df_norm) > 1:
+            try:
+                parts = self.ax_par.violinplot(
+                    violin_data, positions=x_coords, 
+                    showmeans=False, showextrema=False, widths=0.4
+                )
+                
+                for pc in parts['bodies']:
+                    pc.set_facecolor('#808080') # Gris neutre
+                    pc.set_edgecolor('none')
+                    pc.set_alpha(0.2)           # Très léger pour fond
+            except Exception:
+                # Peut échouer si tous les points sont identiques (variance nulle)
+                pass
+
+        scores = df_to_plot[self.response].values
+        
+        # Recalcul de l'échelle de couleur sur la sélection actuelle (LOCALE)
+        # pour maximiser le contraste (bleu -> rouge sur la plage visible)
+        vmin = df_to_plot[self.response].min()
+        vmax = df_to_plot[self.response].max()
+        
+        # Sécurité pour éviter erreur si tous les points ont exactement la même valeur
+        if vmin == vmax:
+            vmin -= 0.01
+            vmax += 0.01
+        
+        lc = LineCollection(points, array=scores, cmap='coolwarm', norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), alpha=0.5, linewidths=1)
+        
+        self.ax_par.add_collection(lc)
+        self.ax_par.set_xlim(-0.5, P - 0.5)
+        self.ax_par.set_ylim(-0.05, 1.05)
+        
+        # Axe X : Noms des paramètres
+        self.ax_par.set_xticks(x_coords)
+        self.ax_par.set_xticklabels(cols, rotation=45, ha='right', fontsize=9)
+        
+        # Axe Y : Juste indiquer que c'est normalisé
+        self.ax_par.set_yticks([0, 0.5, 1])
+        self.ax_par.set_yticklabels(["Min", "50%", "Max"])
+        self.ax_par.grid(axis='x', linestyle='--', alpha=0.5)
+        
+        # Colorbar sur l'axe dédié (cax)
+        self.fig_par.colorbar(lc, cax=self.cax_par)
+        self.cax_par.set_ylabel(self.response)
+        
+        count_str = f"({len(df_to_plot)} pts)"
+        self.ax_par.set_title(f"Recettes Filtrées {count_str}")
+            
+        self.canvas_par.draw()
 
     def run_search(self):
         try:
@@ -283,6 +482,119 @@ class OptimizationWindow(tk.Toplevel):
         except Exception as e:
             self.txt_opt_res.insert(tk.END, f"Erreur: {e}")
 
+    def export_filtered_report(self):
+        """
+        Génère un rapport statistique complet sur la sélection actuelle (Zone Verte).
+        Analyse la 'criticité' des paramètres en comparant la variance locale vs globale.
+        """
+        pos = self.var_pos.get()
+        width = self.var_width.get()
+        low = pos - width/2
+        high = pos + width/2
+        
+        # Filtre
+        mask = (self.df[self.response] >= low) & (self.df[self.response] <= high)
+        df_sel = self.df[mask]
+        
+        if len(df_sel) == 0:
+            messagebox.showwarning("Export", "Aucun point sélectionné dans la plage actuelle.")
+            return
+
+        # Demande nom de fichier
+        import datetime
+        now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"Rapport_Selection_{self.analysis_name}_{now_str}.md"
+        
+        path = filedialog.asksaveasfilename(
+            title="Exporter Rapport et Données",
+            initialfile=default_name,
+            defaultextension=".md",
+            filetypes=[("Markdown Report", "*.md")]
+        )
+        
+        if not path:
+            return
+            
+        base_dir = os.path.dirname(path)
+        base_name = os.path.splitext(os.path.basename(path))[0]
+        csv_path = os.path.join(base_dir, f"{base_name}_DATA.csv")
+        
+        # --- ANALYSE STATISTIQUE ---
+        lines = []
+        lines.append(f"# Rapport d'Analyse de Sélection : {self.analysis_name}")
+        lines.append(f"**Date :** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        lines.append(f"**Filtre sur {self.response} :** [{low:.3f}, {high:.3f}]") # Changed to .3f
+        lines.append(f"**Population retenue :** {len(df_sel)} / {len(self.df)} ({len(df_sel)/len(self.df)*100:.1f}%)")
+        lines.append("\n---")
+        
+        lines.append("## 1. Analyse de Criticité des Paramètres")
+        lines.append("Ce tableau montre quels paramètres sont devenus 'contraints' dans votre sélection performante.")
+        lines.append("- **Réduction Variance** : Plus c'est proche de 100%, plus le paramètre est CRITIQUE (il ne tolère pas d'écart).")
+        lines.append("- **Réduction** = 0% signifie que le paramètre peut varier autant que dans l'étude globale sans impacter la performance.")
+        lines.append("\n| Paramètre | Moyenne Globale | Moyenne Sélection | Écart-Type Global | Écart-Type Sélection | **Réduction Variance** |")
+        lines.append("|---|---|---|---|---|---|")
+        
+        criticality = []
+        
+        for col in self.params:
+            mean_g = self.df[col].mean()
+            std_g = self.df[col].std()
+            
+            mean_s = df_sel[col].mean()
+            std_s = df_sel[col].std()
+            
+            # Calcul réduction de variance
+            if std_g > 0:
+                reduction = (1 - (std_s / std_g)) * 100
+            else:
+                reduction = 0
+            
+            criticality.append({
+                'param': col,
+                'mean_s': mean_s,
+                'std_s': std_s,
+                'mean_g': mean_g,
+                'std_g': std_g,
+                'reduction': reduction,
+                'min_s': df_sel[col].min(),
+                'max_s': df_sel[col].max()
+            })
+
+        # Tri par réduction décroissante (les plus critiques en premier)
+        criticality.sort(key=lambda x: x['reduction'], reverse=True)
+        
+        for c in criticality:
+            # Formatage gras si > 30% de réduction
+            red_str = f"{c['reduction']:.1f}%"
+            if c['reduction'] > 30:
+                red_str = f"**{red_str}**"
+                
+            line = f"| {c['param']} | {c['mean_g']:.3f} | {c['mean_s']:.3f} | {c['std_g']:.3f} | {c['std_s']:.3f} | {red_str} |" # Changed to .3f
+            lines.append(line)
+            
+        lines.append("\n## 2. Recommandations de Réglages (Recette)")
+        lines.append("Plages de valeurs observées dans la sélection performante.")
+        lines.append("\n| Paramètre | Min Observé | **Moyenne Cible** | Max Observé |")
+        lines.append("|---|---|---|---|")
+        
+        for c in criticality:
+            lines.append(f"| {c['param']} | {c['min_s']:.3f} | **{c['mean_s']:.3f}** | {c['max_s']:.3f} |") # Changed to .3f
+            
+        lines.append(f"\nDonnées brutes exportées dans : `{os.path.basename(csv_path)}`")
+        
+        # Sauvegarde
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            
+            # Arrondir les valeurs numériques avant l'export CSV
+            df_sel_formatted = df_sel.round(3)
+            df_sel_formatted.to_csv(csv_path, index=False)
+            
+            messagebox.showinfo("Rapport Généré", f"Rapport et Données sauvegardés :\n{path}")
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Impossible d'écrire le rapport :\n{e}")
+
     def plot_comparison(self, zone):
         self.ax.clear() 
         
@@ -311,6 +623,10 @@ class OptimizationWindow(tk.Toplevel):
         
         self.ax.set_title(f"Positionnement de la Zone #{self.tree.selection()[0]} (rouge)")
         self.ax.legend()
+        
+        # Ré-appliquer le curseur vert par-dessus
+        self.update_cursor_viz()
+        
         self.canvas.draw()
 
     def select_image_folder(self):
