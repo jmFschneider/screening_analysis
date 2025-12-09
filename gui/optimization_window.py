@@ -15,13 +15,14 @@ class OptimizationWindow(tk.Toplevel):
     Fenêtre affichant les zones optimales (Bump Hunting via Arbre de Décision).
     """
 
-    def __init__(self, master, df, params, response_cols):
+    def __init__(self, master, df, params, response_cols, analysis_name="Analyse"):
         super().__init__(master)
         self.title("Découverte de Zones Optimales")
         self.geometry("1100x700")
 
         self.df = df
         self.params = params
+        self.analysis_name = analysis_name
         self.response = response_cols[0] if isinstance(response_cols, list) else response_cols
         
         self.zones = []
@@ -424,6 +425,113 @@ class OptimizationWindow(tk.Toplevel):
             import traceback
             traceback.print_exc()
 
+    def save_image_action(self, img_array, params, batch_mode=False, img_name="result"):
+        """
+        Sauvegarde l'image (ou le lot) et consigne les détails dans un fichier CSV.
+        """
+        import datetime
+        import ocr_quality_audit # Requis pour le mode batch
+        
+        now = datetime.datetime.now()
+        timestamp_str = now.strftime("%H-%M-%S")
+        date_log = now.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Préparation du nom par défaut pour la boite de dialogue
+        base_img_name = os.path.splitext(img_name)[0]
+        default_name = f"{base_img_name}_{self.analysis_name}_{timestamp_str}.png"
+        
+        # Nettoyage
+        keep = (' ', '.', '_', '-')
+        safe_name = "".join(c for c in default_name if c.isalnum() or c in keep).strip()
+
+        file_path = filedialog.asksaveasfilename(
+            title="Sauvegarder le résultat" + (" (Lot)" if batch_mode else ""),
+            defaultextension=".png",
+            initialfile=safe_name,
+            filetypes=[("PNG Image", "*.png")]
+        )
+        
+        if not file_path:
+            return
+
+        save_dir = os.path.dirname(file_path)
+        log_file = os.path.join(save_dir, "render_history_log.csv") # Changed extension to .csv
+        
+        # Determine parameter names for CSV header (assuming consistent params structure)
+        # This assumes 'params' keys are consistent across all calls within a session
+        param_names = list(params.keys())
+        header = ["Image", "Date"] + param_names
+
+        try:
+            # Check if log file exists to decide whether to write header
+            file_exists = os.path.exists(log_file)
+            
+            # Function to write a log entry
+            def write_log_entry(img_filename, log_date, p_dict):
+                data_row_values = [img_filename, log_date] + [str(p_dict.get(p_name, "")) for p_name in param_names]
+                csv_line = ",".join(data_row_values) + "\n"
+                
+                with open(log_file, "a", encoding="utf-8") as f:
+                    # Write header only if file is new
+                    if not file_exists and f.tell() == 0: # f.tell() == 0 ensures it's truly empty
+                        f.write(",".join(header) + "\n")
+                    f.write(csv_line)
+
+            # === MODE BATCH ===
+            if batch_mode:
+                if not hasattr(self, 'image_folder') or not self.image_folder:
+                    raise ValueError("Le dossier source des images est introuvable.")
+                
+                # Récupérer toutes les images du dossier source
+                exts = ['*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff', '*.bmp']
+                files = []
+                for ext in exts:
+                    files.extend(glob.glob(os.path.join(self.image_folder, ext)))
+                
+                if not files:
+                    raise ValueError("Aucune image trouvée dans le dossier source.")
+
+                count = 0
+                for f_path in files:
+                    f_name = os.path.basename(f_path)
+                    f_base = os.path.splitext(f_name)[0]
+                    
+                    # Lecture
+                    img_in = cv2.imread(f_path, cv2.IMREAD_GRAYSCALE)
+                    if img_in is None: continue
+                    
+                    # Traitement
+                    res = ocr_quality_audit.pipeline_complet(img_in, params)
+                    
+                    # Nom de sortie : Original_Analyse_Heure.png
+                    out_name = f"{f_base}_{self.analysis_name}_{timestamp_str}.png"
+                    out_path = os.path.join(save_dir, out_name)
+                    
+                    # Sauvegarde
+                    cv2.imwrite(out_path, res)
+                    
+                    # Log
+                    write_log_entry(out_name, date_log, params)
+                    
+                    count += 1
+                
+                messagebox.showinfo("Succès Batch", f"{count} images traitées et sauvegardées dans :\n{save_dir}\nLog CSV mis à jour.")
+
+            # === MODE SINGLE ===
+            else:
+                # On utilise le chemin choisi par l'utilisateur
+                cv2.imwrite(file_path, img_array)
+                
+                saved_name = os.path.basename(file_path)
+                write_log_entry(saved_name, date_log, params)
+                
+                messagebox.showinfo("Succès", f"Image sauvegardée : {saved_name}\nLog CSV mis à jour.")
+                
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Echec de la sauvegarde :\n{e}")
+            import traceback
+            traceback.print_exc()
+
     def show_image_window(self, original, processed, title, source_info, params):
         win = tk.Toplevel(self)
         win.title(f"Visualisation : {title} ({source_info})")
@@ -464,6 +572,22 @@ class OptimizationWindow(tk.Toplevel):
         lbl_img_proc = tk.Label(frame_imgs, image=proc_tk)
         lbl_img_proc.image = proc_tk # Keep ref
         lbl_img_proc.grid(row=1, column=1, padx=5)
+
+        # Contrôles Sauvegarde
+        ctrl_frame = tk.Frame(frame_imgs, pady=10)
+        ctrl_frame.grid(row=2, column=1)
+
+        self.var_batch_process = tk.BooleanVar(value=False)
+        chk_batch = tk.Checkbutton(ctrl_frame, text="Traiter toutes les images du dossier", 
+                                   variable=self.var_batch_process, bg="#ffffcc", anchor="w")
+        chk_batch.pack(side="top", pady=2)
+
+        # Bouton Sauvegarde
+        tk.Button(ctrl_frame, text="Sauvegarder l'image (ou le lot)", bg="#d9f2d9", font=("Arial", 10, "bold"),
+                  command=lambda: self.save_image_action(processed, params, 
+                                                         batch_mode=self.var_batch_process.get(), 
+                                                         img_name=title))\
+            .pack(side="top", pady=5)
         
         # Infos Paramètres en bas
         txt_info = scrolledtext.ScrolledText(win, height=6, bg="#f0f0f0")
