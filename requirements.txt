@@ -1,0 +1,51 @@
+# ============================================================================
+# Requirements pour screening_analysis
+# ============================================================================
+# Compatible Ubuntu et Windows
+# OpenCV sans CUDA (version pré-compilée wheel de PyPI)
+# ============================================================================
+
+# Traitement d'image et OCR
+# OpenCV version wheel pré-compilée (sans CUDA, compatible Ubuntu/Windows)
+opencv-python>=4.8.0
+pillow>=12.0.0
+pytesseract>=0.3.13
+tifffile>=2023.7.0
+
+# Calcul scientifique
+# IMPORTANT: numpy>=2.0 requis pour opencv-python>=4.12 et SALib>=1.5
+numpy>=2.0,<3.0
+scipy>=1.11.3
+pandas>=2.1.1
+
+# Analyse et optimisation
+optuna>=4.6.0
+SALib>=1.5.0
+scikit-learn>=1.0.0
+shap>=0.40.0
+
+# Analyse de sensibilité avancée
+numba>=0.56.0
+
+# Visualisation
+matplotlib>=3.8.0
+seaborn>=0.12.0
+
+# ============================================================================
+# Notes importantes :
+# ============================================================================
+# 1. OpenCV :
+#    - On utilise opencv-python (wheel pré-compilé de PyPI)
+#    - Pas de support CUDA, mais fonctionne sur Ubuntu et Windows
+#    - Compatible avec numpy>=2.0
+#
+# 2. NumPy :
+#    - Version 2.x requise pour SALib>=1.5 et opencv-python>=4.12
+#    - Les versions wheel pré-compilées d'OpenCV sont compatibles NumPy 2.x
+#
+# 3. Installation :
+#    pip install -r requirements.txt
+#
+# 4. Pour installer le package OCR_Quality_Audit (local) :
+#    pip install -e /chemin/vers/OCR_Quality_Audit[windows]
+# ============================================================================
