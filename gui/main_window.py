@@ -581,8 +581,16 @@ class MainWindow:
             self.log_text.insert(tk.END, "⚠ Aucun paramètre sélectionné.\n")
             return
 
+        import os
+        full_path = self.file_entry.get()
+        if full_path:
+            filename = os.path.basename(full_path)
+            analysis_name = os.path.splitext(filename)[0]
+        else:
+            analysis_name = "Analyse"
+
         from gui.optimization_window import OptimizationWindow
-        OptimizationWindow(self.master, self.df, self.param_cols, self.response_cols)
+        OptimizationWindow(self.master, self.df, self.param_cols, self.response_cols, analysis_name=analysis_name)
         self.log_text.insert(tk.END, "Fenêtre Optimisation ouverte.\n")
 
 
