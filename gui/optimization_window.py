@@ -20,11 +20,16 @@ class OptimizationWindow(tk.Toplevel):
         self.title("Découverte de Zones Optimales")
         self.geometry("1600x700")
 
+        # Configuration pour améliorer la gestion du focus sous Linux
+        self.transient(master)  # Associe cette fenêtre à la fenêtre principale
+        self.lift()  # Met la fenêtre au premier plan
+        self.focus_force()  # Force le focus sur cette fenêtre
+
         self.df = df
         self.params = params
         self.analysis_name = analysis_name # Correction: Store analysis_name
         self.response = response_cols[0] if isinstance(response_cols, list) else response_cols
-        
+
         self.zones = []
         self.last_optimized_coords = None
 
@@ -40,8 +45,9 @@ class OptimizationWindow(tk.Toplevel):
         top_frame.grid(row=0, column=0, sticky="ew")
         
         tk.Label(top_frame, text=f"Optimisation pour : {self.response}", font=("Arial", 11, "bold")).pack(side="left")
-        
-        tk.Button(top_frame, text="Lancer la recherche", command=self.run_search, bg="#dddddd").pack(side="left", padx=20)
+
+        self.btn_search = tk.Button(top_frame, text="Lancer la recherche", command=self.run_search, bg="#dddddd", state="normal")
+        self.btn_search.pack(side="left", padx=20)
 
         # Paramètres simples
         tk.Label(top_frame, text="Profondeur Arbre :",).pack(side="left", padx=5)
@@ -84,7 +90,8 @@ class OptimizationWindow(tk.Toplevel):
         img_frame = tk.LabelFrame(left_frame, text="Source Image Test", padx=5, pady=5)
         img_frame.pack(fill="x", padx=5, pady=5)
 
-        tk.Button(img_frame, text="Choisir Dossier...", command=self.select_image_folder, bg="#eeeeee").pack(fill="x", pady=2)
+        self.btn_choose_folder = tk.Button(img_frame, text="Choisir Dossier...", command=self.select_image_folder, bg="#eeeeee", state=tk.NORMAL)
+        self.btn_choose_folder.pack(fill="x", pady=2)
         
         self.combo_images = ttk.Combobox(img_frame, state="readonly")
         self.combo_images.pack(fill="x", pady=2)
@@ -139,7 +146,8 @@ class OptimizationWindow(tk.Toplevel):
         self.lbl_cursor_stats = tk.Label(cursor_frame, text="Sélection : - points (-%)", fg="green", font=("Arial", 9, "bold"))
         self.lbl_cursor_stats.pack(pady=2)
 
-        tk.Button(cursor_frame, text="📄 Exporter Rapport de Sélection", command=self.export_filtered_report, bg="#e0f7fa").pack(fill="x", pady=5)
+        self.btn_export = tk.Button(cursor_frame, text="📄 Exporter Rapport de Sélection", command=self.export_filtered_report, bg="#e0f7fa", state="normal")
+        self.btn_export.pack(fill="x", pady=5)
 
         # --- Panneau Optimisation Fine ---
         opt_frame = tk.LabelFrame(right_frame, text="Exploration Fine (Métamodèle)", padx=5, pady=5)
@@ -153,12 +161,14 @@ class OptimizationWindow(tk.Toplevel):
         self.scale_ext = tk.Scale(ctrl_sub, from_=0, to=20, orient=tk.HORIZONTAL, length=150)
         self.scale_ext.set(5) # Défaut 5%
         self.scale_ext.pack(side="left", padx=10)
-        
-        tk.Button(ctrl_sub, text="Chercher le Maximum (Est.)", 
-                  command=self.run_fine_optimization, bg="#ccffcc").pack(side="left", padx=10)
-        
-        tk.Button(ctrl_sub, text="Visualiser Rendu", 
-                  command=self.visualize_render, bg="#ffcc99").pack(side="left", padx=10)
+
+        self.btn_optimize = tk.Button(ctrl_sub, text="Chercher le Maximum (Est.)",
+                  command=self.run_fine_optimization, bg="#ccffcc", state="normal")
+        self.btn_optimize.pack(side="left", padx=10)
+
+        self.btn_visualize = tk.Button(ctrl_sub, text="Visualiser Rendu",
+                  command=self.visualize_render, bg="#ffcc99", state="normal")
+        self.btn_visualize.pack(side="left", padx=10)
 
         # Résultat texte
         self.txt_opt_res = scrolledtext.ScrolledText(opt_frame, height=5, font=("Consolas", 9), bg="#e6ffe6")
@@ -439,10 +449,14 @@ class OptimizationWindow(tk.Toplevel):
             if self.zones:
                 self.tree.selection_set(0)
             else:
-                messagebox.showinfo("Info", "Aucune zone significative trouvée.")
+                messagebox.showinfo("Info", "Aucune zone significative trouvée.", parent=self)
+                self.lift()
+                self.focus_force()
 
         except Exception as e:
-            messagebox.showerror("Erreur", str(e))
+            messagebox.showerror("Erreur", str(e), parent=self)
+            self.lift()
+            self.focus_force()
             import traceback
             traceback.print_exc()
 
@@ -479,7 +493,9 @@ class OptimizationWindow(tk.Toplevel):
     def run_fine_optimization(self):
         selected = self.tree.selection()
         if not selected:
-            messagebox.showinfo("Info", "Veuillez sélectionner une zone d'abord.")
+            messagebox.showinfo("Info", "Veuillez sélectionner une zone d'abord.", parent=self)
+            self.lift()
+            self.focus_force()
             return
         
         idx = int(selected[0])
@@ -524,23 +540,30 @@ class OptimizationWindow(tk.Toplevel):
         # Filtre
         mask = (self.df[self.response] >= low) & (self.df[self.response] <= high)
         df_sel = self.df[mask]
-        
+
         if len(df_sel) == 0:
-            messagebox.showwarning("Export", "Aucun point sélectionné dans la plage actuelle.")
+            messagebox.showwarning("Export", "Aucun point sélectionné dans la plage actuelle.", parent=self)
+            self.lift()
+            self.focus_force()
             return
 
         # Demande nom de fichier
         import datetime
         now_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"Rapport_Selection_{self.analysis_name}_{now_str}.md"
-        
+
         path = filedialog.asksaveasfilename(
             title="Exporter Rapport et Données",
             initialfile=default_name,
             defaultextension=".md",
-            filetypes=[("Markdown Report", "*.md")]
+            filetypes=[("Markdown Report", "*.md")],
+            parent=self
         )
-        
+
+        # Ramener le focus à cette fenêtre
+        self.lift()
+        self.focus_force()
+
         if not path:
             return
             
@@ -615,14 +638,18 @@ class OptimizationWindow(tk.Toplevel):
         try:
             with open(path, "w", encoding="utf-8") as f:
                 f.write("\n".join(lines))
-            
+
             # Arrondir les valeurs numériques avant l'export CSV
             df_sel_formatted = df_sel.round(3)
             df_sel_formatted.to_csv(csv_path, index=False)
-            
-            messagebox.showinfo("Rapport Généré", f"Rapport et Données sauvegardés :\n{path}")
+
+            messagebox.showinfo("Rapport Généré", f"Rapport et Données sauvegardés :\n{path}", parent=self)
+            self.lift()
+            self.focus_force()
         except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible d'écrire le rapport :\n{e}")
+            messagebox.showerror("Erreur", f"Impossible d'écrire le rapport :\n{e}", parent=self)
+            self.lift()
+            self.focus_force()
 
     def plot_comparison(self, zone):
         self.ax.clear() 
@@ -659,30 +686,39 @@ class OptimizationWindow(tk.Toplevel):
         self.canvas.draw()
 
     def select_image_folder(self):
-        folder = filedialog.askdirectory(title="Sélectionner le dossier d'images")
+        folder = filedialog.askdirectory(title="Sélectionner le dossier d'images", parent=self)
+
+        # Ramener le focus à cette fenêtre
+        self.lift()
+        self.focus_force()
+
         if folder:
             # Extensions courantes
             exts = ['*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff', '*.bmp']
             files = []
             for ext in exts:
                 files.extend(glob.glob(os.path.join(folder, ext)))
-            
+
             # Garder juste les noms de fichiers
             files = [os.path.basename(f) for f in files]
             files.sort()
-            
+
             self.combo_images['values'] = files
             if files:
                 self.combo_images.current(0)
                 # Stocker le chemin complet du dossier
                 self.image_folder = folder
             else:
-                messagebox.showinfo("Info", "Aucune image trouvée dans ce dossier.")
+                messagebox.showinfo("Info", "Aucune image trouvée dans ce dossier.", parent=self)
+                self.lift()
+                self.focus_force()
 
     def visualize_render(self):
         # 1. Vérifier qu'une image est sélectionnée
         if not hasattr(self, 'image_folder') or not self.combo_images.get():
-            messagebox.showwarning("Attention", "Veuillez sélectionner une image source d'abord (Panneau Gauche).")
+            messagebox.showwarning("Attention", "Veuillez sélectionner une image source d'abord (Panneau Gauche).", parent=self)
+            self.lift()
+            self.focus_force()
             return
             
         img_name = self.combo_images.get()
@@ -698,7 +734,9 @@ class OptimizationWindow(tk.Toplevel):
         else:
             selected = self.tree.selection()
             if not selected:
-                messagebox.showwarning("Attention", "Veuillez sélectionner une zone.")
+                messagebox.showwarning("Attention", "Veuillez sélectionner une zone.", parent=self)
+                self.lift()
+                self.focus_force()
                 return
             
             idx = int(selected[0])
@@ -766,7 +804,9 @@ class OptimizationWindow(tk.Toplevel):
             self.show_image_window(img, processed_img, img_name, source_type, ocr_params)
 
         except Exception as e:
-            messagebox.showerror("Erreur de Traitement", f"Le traitement a échoué :\n{e}")
+            messagebox.showerror("Erreur de Traitement", f"Le traitement a échoué :\n{e}", parent=self)
+            self.lift()
+            self.focus_force()
             import traceback
             traceback.print_exc()
 
@@ -793,9 +833,14 @@ class OptimizationWindow(tk.Toplevel):
             title="Sauvegarder le résultat" + (" (Lot)" if batch_mode else ""),
             defaultextension=".png",
             initialfile=safe_name,
-            filetypes=[("PNG Image", "*.png")]
+            filetypes=[("PNG Image", "*.png")],
+            parent=self
         )
-        
+
+        # Ramener le focus à cette fenêtre
+        self.lift()
+        self.focus_force()
+
         if not file_path:
             return
 
@@ -859,21 +904,27 @@ class OptimizationWindow(tk.Toplevel):
                     write_log_entry(out_name, date_log, params)
                     
                     count += 1
-                
-                messagebox.showinfo("Succès Batch", f"{count} images traitées et sauvegardées dans :\n{save_dir}\nLog CSV mis à jour.")
+
+                messagebox.showinfo("Succès Batch", f"{count} images traitées et sauvegardées dans :\n{save_dir}\nLog CSV mis à jour.", parent=self)
+                self.lift()
+                self.focus_force()
 
             # === MODE SINGLE ===
             else:
                 # On utilise le chemin choisi par l'utilisateur
                 cv2.imwrite(file_path, img_array)
-                
+
                 saved_name = os.path.basename(file_path)
                 write_log_entry(saved_name, date_log, params)
-                
-                messagebox.showinfo("Succès", f"Image sauvegardée : {saved_name}\nLog CSV mis à jour.")
-                
+
+                messagebox.showinfo("Succès", f"Image sauvegardée : {saved_name}\nLog CSV mis à jour.", parent=self)
+                self.lift()
+                self.focus_force()
+
         except Exception as e:
-            messagebox.showerror("Erreur", f"Echec de la sauvegarde :\n{e}")
+            messagebox.showerror("Erreur", f"Echec de la sauvegarde :\n{e}", parent=self)
+            self.lift()
+            self.focus_force()
             import traceback
             traceback.print_exc()
 
@@ -881,6 +932,11 @@ class OptimizationWindow(tk.Toplevel):
         win = tk.Toplevel(self)
         win.title(f"Visualisation : {title} ({source_info})")
         win.geometry("1200x800")
+
+        # Configuration pour améliorer la gestion du focus sous Linux
+        win.transient(self)  # Associe cette fenêtre à la fenêtre d'optimisation
+        win.lift()  # Met la fenêtre au premier plan
+        win.focus_force()  # Force le focus sur cette fenêtre
         
         # Convertir OpenCV (BGR/Gray) -> PIL -> ImageTk
         # Original
@@ -928,11 +984,11 @@ class OptimizationWindow(tk.Toplevel):
         chk_batch.pack(side="top", pady=2)
 
         # Bouton Sauvegarde
-        tk.Button(ctrl_frame, text="Sauvegarder l'image (ou le lot)", bg="#d9f2d9", font=("Arial", 10, "bold"),
-                  command=lambda: self.save_image_action(processed, params, 
-                                                         batch_mode=self.var_batch_process.get(), 
-                                                         img_name=title))\
-            .pack(side="top", pady=5)
+        btn_save = tk.Button(ctrl_frame, text="Sauvegarder l'image (ou le lot)", bg="#d9f2d9", font=("Arial", 10, "bold"),
+                  command=lambda: self.save_image_action(processed, params,
+                                                         batch_mode=self.var_batch_process.get(),
+                                                         img_name=title), state="normal")
+        btn_save.pack(side="top", pady=5)
         
         # Infos Paramètres en bas
         txt_info = scrolledtext.ScrolledText(win, height=6, bg="#f0f0f0")
