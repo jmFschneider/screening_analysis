@@ -32,6 +32,7 @@ class OptimizationWindow(tk.Toplevel):
 
         self.zones = []
         self.last_optimized_coords = None
+        self.last_picked_coords = None
 
         # Layout principal
         self.columnconfigure(0, weight=1)
@@ -101,12 +102,30 @@ class OptimizationWindow(tk.Toplevel):
         right_frame = tk.Frame(paned)
         paned.add(right_frame, minsize=400)
         
-        # Zone Texte pour les règles
-        self.lbl_detail = tk.Label(right_frame, text="Détails de la zone sélectionnée", font=("Arial", 10, "bold"))
-        self.lbl_detail.pack(anchor="w", pady=5)
+        # Conteneur pour Détails Zone (Gauche) et Détails Point (Droite)
+        details_frame = tk.Frame(right_frame)
+        details_frame.pack(fill="x", padx=5, pady=5)
+        details_frame.columnconfigure(0, weight=1, uniform="group1")
+        details_frame.columnconfigure(1, weight=1, uniform="group1")
+
+        # --- Gauche : Zone ---
+        frame_zone = tk.Frame(details_frame)
+        frame_zone.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         
-        self.txt_rules = scrolledtext.ScrolledText(right_frame, height=8, font=("Consolas", 10), bg="#f9f9f9")
-        self.txt_rules.pack(fill="x", padx=5)
+        self.lbl_detail = tk.Label(frame_zone, text="Détails de la zone sélectionnée", font=("Arial", 10, "bold"))
+        self.lbl_detail.pack(anchor="w")
+        
+        self.txt_rules = scrolledtext.ScrolledText(frame_zone, height=8, font=("Consolas", 10), bg="#f9f9f9")
+        self.txt_rules.pack(fill="both", expand=True)
+
+        # --- Droite : Point Sélectionné ---
+        frame_point = tk.Frame(details_frame)
+        frame_point.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+        tk.Label(frame_point, text="Valeurs du point sélectionné", font=("Arial", 10, "bold")).pack(anchor="w")
+        
+        self.txt_point_params = scrolledtext.ScrolledText(frame_point, height=8, font=("Consolas", 10), bg="#eef7ff")
+        self.txt_point_params.pack(fill="both", expand=True)
 
         # Zone Graphique (Boxplot comparatif : Global vs Zone)
         self.fig = Figure(figsize=(5, 3))
@@ -189,6 +208,8 @@ class OptimizationWindow(tk.Toplevel):
         
         self.canvas_par = FigureCanvasTkAgg(self.fig_par, self.visu_frame)
         self.canvas_par.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+        self.canvas_par.mpl_connect('pick_event', self.on_parallel_line_pick) # Connect pick event
+        
 
         # Lancer le tracé initial du graphique parallèle
         self.plot_parallel_coordinates()
@@ -321,11 +342,15 @@ class OptimizationWindow(tk.Toplevel):
             vmin -= 0.01
             vmax += 0.01
         
-        lc = LineCollection(points, array=scores, cmap='coolwarm', norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), alpha=0.5, linewidths=1)
+        self.lc_par = LineCollection(points, array=scores, cmap='coolwarm', norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), alpha=0.5, linewidths=1, picker=5) # picker=5 enables picking with a 5-point tolerance
         
-        self.ax_par.add_collection(lc)
+        self.ax_par.add_collection(self.lc_par)
         self.ax_par.set_xlim(-0.5, P - 0.5)
         self.ax_par.set_ylim(-0.05, 1.25) # Augmenter l'espace pour les labels de réduction de variance
+        
+        # Store df_to_plot and cols for later use in picking
+        self.df_par_plot = df_to_plot
+        self.par_plot_cols = cols
         
         # Axe X : Noms des paramètres
         self.ax_par.set_xticks(x_coords)
@@ -361,13 +386,57 @@ class OptimizationWindow(tk.Toplevel):
                 )
         
         # Colorbar sur l'axe dédié (cax)
-        self.fig_par.colorbar(lc, cax=self.cax_par)
+        self.fig_par.colorbar(self.lc_par, cax=self.cax_par)
         self.cax_par.set_ylabel(self.response)
         
         count_str = f"({len(df_to_plot)} pts)"
         self.ax_par.set_title(f"Recettes Filtrées {count_str}")
             
         self.canvas_par.draw()
+
+    def on_parallel_line_pick(self, event):
+        """
+        Gère l'événement de sélection (clic) sur une ligne du graphique de coordonnées parallèles.
+        Affiche les paramètres du point correspondant.
+        """
+        if event.artist == self.lc_par:
+            ind = event.ind # Indices des lignes sélectionnées
+            if len(ind) > 0:
+                # On prend le premier indice si plusieurs lignes se chevauchent
+                picked_index = ind[0] 
+                
+                # Récupérer les données du point sélectionné
+                # self.df_par_plot contient le DataFrame actuellement tracé
+                # et ses index correspondent aux indices des lignes dans lc_par
+                if self.df_par_plot is not None and picked_index < len(self.df_par_plot):
+                    selected_point_data = self.df_par_plot.iloc[picked_index]
+                    
+                    # Store for visualization
+                    self.last_picked_coords = {}
+                    for param in self.par_plot_cols:
+                        self.last_picked_coords[param] = selected_point_data[param]
+                    
+                    # Reset conflicting source
+                    self.last_optimized_coords = None
+
+                    # Afficher dans la zone de texte dédiée
+                    self.txt_point_params.delete("1.0", tk.END)
+                    self.txt_point_params.insert(tk.END, f"Index Point : {picked_index}\n")
+                    self.txt_point_params.insert(tk.END, "-"*25 + "\n")
+                    
+                    for param in self.par_plot_cols:
+                        val = selected_point_data[param]
+                        self.txt_point_params.insert(tk.END, f"{param:<15}: {val:.4f}\n")
+                    
+                    self.txt_point_params.insert(tk.END, "-"*25 + "\n")
+                    self.txt_point_params.insert(tk.END, f"{self.response:<15}: {selected_point_data[self.response]:.4f}\n")
+                    
+                    # Feedback visuel console ou status (optionnel)
+                    # print(f"Point {picked_index} sélectionné.")
+                else:
+                    messagebox.showinfo("Sélection", "Impossible de récupérer les données du point sélectionné.", parent=self)
+                    self.lift()
+                    self.focus_force()
 
     def run_search(self):
         try:
@@ -467,6 +536,7 @@ class OptimizationWindow(tk.Toplevel):
             
         # Reset Fine Opt coords pour éviter confusion si on clique visualier direct
         self.last_optimized_coords = None
+        self.last_picked_coords = None
 
         idx = int(selected[0])
         zone = self.zones[idx]
@@ -516,6 +586,7 @@ class OptimizationWindow(tk.Toplevel):
             )
             
             self.last_optimized_coords = best_coords
+            self.last_picked_coords = None
 
             self.txt_opt_res.delete("1.0", tk.END)
             self.txt_opt_res.insert(tk.END, f"--- Optimum Estimé (Ext: {expansion*100:.0f}%) ---\n")
@@ -731,6 +802,9 @@ class OptimizationWindow(tk.Toplevel):
         if self.last_optimized_coords:
              params_to_use = self.last_optimized_coords
              source_type = "Optimisation Fine"
+        elif self.last_picked_coords:
+             params_to_use = self.last_picked_coords
+             source_type = "Point Sélectionné (Graphique)"
         else:
             selected = self.tree.selection()
             if not selected:
