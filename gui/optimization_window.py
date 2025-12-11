@@ -873,9 +873,10 @@ class OptimizationWindow(tk.Toplevel):
 
             # Appliquer Pipeline
             processed_img = ocr_quality_audit.pipeline_complet(img, ocr_params)
-            
+
             # 5. Afficher Résultat
-            self.show_image_window(img, processed_img, img_name, source_type, ocr_params)
+            # Passer params_to_use pour le log CSV (vrais noms de colonnes)
+            self.show_image_window(img, processed_img, img_name, source_type, params_to_use)
 
         except Exception as e:
             messagebox.showerror("Erreur de Traitement", f"Le traitement a échoué :\n{e}", parent=self)
