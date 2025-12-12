@@ -11,6 +11,8 @@ from core.grouping import group_by_multidimensional_sort
 from core.clustering import group_kmeans_fixed, group_kmeans_adaptive
 from core.export import export_group_results
 from core.pca import compute_pca
+from gui.image_window import ImageWindow
+from gui.preparation_window import PreparationWindow
 
 
 class PCAWindow(tk.Toplevel):
@@ -272,6 +274,25 @@ class MainWindow:
     def __init__(self, master):
         self.master = master
         master.title("Analyse des points — A1 / C2 / PCA")
+
+        # --- Menu Principal ---
+        menubar = tk.Menu(master)
+        
+        # Menu Fichier
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Quitter", command=master.quit)
+        menubar.add_cascade(label="Fichier", menu=file_menu)
+
+        # Menu Outils
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        tools_menu.add_command(label="Analyse de Données (CSV)", command=lambda: None) # Déjà sur l'écran principal
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Préparation Images (PDF -> JPEG, Refs)", command=self.open_prep_tool)
+        tools_menu.add_command(label="Traitement Images (Tri/Fusion)", command=self.open_image_tool)
+        menubar.add_cascade(label="Outils", menu=tools_menu)
+        
+        master.config(menu=menubar)
+        # ----------------------
 
         self.df = None
         self.param_cols = []
@@ -592,6 +613,14 @@ class MainWindow:
         from gui.optimization_window import OptimizationWindow
         OptimizationWindow(self.master, self.df, self.param_cols, self.response_cols, analysis_name=analysis_name)
         self.log_text.insert(tk.END, "Fenêtre Optimisation ouverte.\n")
+
+    def open_image_tool(self):
+        """Ouvre l'outil de traitement d'images (Tri & Fusion)"""
+        ImageWindow(self.master)
+
+    def open_prep_tool(self):
+        """Ouvre l'outil de préparation (Extraction PDF, Création Refs)"""
+        PreparationWindow(self.master)
 
 
 def launch_app():
